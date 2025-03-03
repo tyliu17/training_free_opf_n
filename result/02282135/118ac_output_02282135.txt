@@ -1,0 +1,17 @@
+
+date: 02282135
+final_epoch: 0
+training time: 9.3993e-01s
+
+factor: 0.9
+patience: 5
+
+start learning rate: 1.0000e-03
+batch size: 512
+params number: 8.8107e+06
+
+Price L2 mean: 7.5928e-01 
+Price std: 2.4689e-02
+
+Voltage L2 mean: 2.2631e-02 
+Voltage std: 3.3455e-03
