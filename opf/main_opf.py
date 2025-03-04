@@ -15,27 +15,39 @@ import torch.optim as optim
 
 from dnn_model import DNN
 from loss_func import LossFunc
-from lstm_model import InferCell
+# from lstm_model import InferCell
 from dataset import Dataset
 from outputplot import output_plot
 from evaluate_model import evaluate_model
 from compute_error_metrics import compute_error_metrics
 from flow_violation import compute_line_flow_violation
 
-batch_size=512
+
+from InferCell import InferCell
+from NAS_Search import generate_random_genotype
+
+# Hyperparameters
 max_epochs = 3
 eval_epoch = 5
 tolerance = 5  # 早停耐心值
 min_delta = 1e-3
 
+
+batch_size = 32
+
+# 初始學習率
+lr = 0.001
+factor = 0.9
+patience = 5
+
 # 檢查是否有可用的 GPU，否則使用 CPU
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 timestamp = datetime.now().strftime('%m%d%H%M')
-output_path_root = r'C:/Users/USER/Desktop/trainingfree/result/'
+output_path_root = r'C:/Users/USER/Desktop/training_free_opf_n/result/'
 output_path = os.path.join(output_path_root, timestamp)
 output_path = output_path + '/'
-root = r'C:/Users/USER\Desktop/trainingfree/118_data/'
-model_path = r'C:/Users/USER/Desktop/trainingfree/model/'
+root = r'C:/Users/USER\Desktop/training_free_opf_n/118_data/'
+model_path = r'C:/Users/USER/Desktop/training_free_opf_n/model/'
 
 
 #Injection Shift Factor Matrix 表示每個匯流排的功率注入變化如何影響每條輸電線的潮流。
@@ -131,23 +143,63 @@ val_mean, val_std = val_batch_x.mean(dim=0), val_batch_x.std(dim=0)
 # std_value_val = val_std.mean().item()
 # print('Validation Std:', std_value_val)
 
+input_size = n_bus*6
+seq_len = 6
+hidden_size = 10
+output_size = n_bus*2
 # 測試模型
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # DNN
 # net=DNN([n_bus*6,n_bus*10,n_bus*10,n_bus*10,n_bus*2]).to(device) #source code
 # net = DNN([n_bus*6, n_bus*5, n_bus*5, n_bus*10, n_bus*10, n_bus*10, n_bus*10, n_bus*2]).to(device)#my code
 
+
+
+# NAS
+# Generate a random architecture
+genotype = generate_random_genotype()
+print("Generated Genotype:", genotype)
+
+print("=====================================")
+print("input_size", input_size)
+print("seq_len", seq_len)
+print("hidden_size", hidden_size)
+print("output_size", output_size)
+
+
+# Initialize model
+net = InferCell(input_size, seq_len, hidden_size, output_size, genotype).to(device)
+print("=====================================")
+print("Model Summary:")
+print(net)
+
+
+
+
+# criterion = nn.MSELoss()
+
 #lstm
 # 設定參數
-input_size = n_bus*6  # 每個時間步的輸入維度
-seq_len = 6  # 設定時間步數 (相當於 n_bus*6)
+# input_size = n_bus*6  # 每個時間步的輸入維度
+# seq_len = 6  # 設定時間步數 (相當於 n_bus*6)
 
-hidden_size = 10  # LSTM 的隱藏層維度
-num_layers_list = [1, 3, 2, 2]  # 每層 LSTM 的層數
-output_size = n_bus * 2  # 最終輸出維度 (跟 DNN 相同)
+# hidden_size = 10  # LSTM 的隱藏層維度
+# num_layers_list = [1, 3, 2, 2]  # 每層 LSTM 的層數
+# output_size = n_bus * 2  # 最終輸出維度 (跟 DNN 相同)
 
-# 初始化 LSTM-based 模型
-net = InferCell(input_size, seq_len, hidden_size, num_layers_list, output_size).to(device)
+# # 初始化 LSTM-based 模型
+# net = InferCell(input_size, seq_len, hidden_size, num_layers_list, output_size).to(device)
+
+optimizer = optim.AdamW(net.parameters(), lr)
+
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, 
+    mode='min',       # 監測 loss
+    factor=factor,       # 學習率變成 50% (下降更多)
+    patience=patience,       # 3 個 epoch 沒有改善就降低學習率
+    verbose=True,     
+    min_lr=1e-6       
+)
 
 ## params needed for S calculation
 # line parameters
@@ -188,31 +240,8 @@ Br_inv_tensor = torch.from_numpy(Br_inv).to(device) # reduced Bbus matrix
 a_tensor = torch.from_numpy(a).double().to(device) # line/transformer
 
 my_loss = LossFunc(f_max, G_line_tensor, B_line_tensor, B_shunt_tensor, Br_inv_tensor, a_tensor, line_loc, device, n_bus)
-# ?????
-# path = root + 'data_118_quad/gnn_trained_ac118.pickle'
-# try:
-#     net.load_state_dict(torch.load(path))
-#     print('params loaded')
-# except:
-#     print('cold start')
 
-# 初始學習率
-lr = 0.001
-factor = 0.9
-patience = 5
-optimizer = optim.AdamW(net.parameters(), lr)
-
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, 
-    mode='min',       # 監測 loss
-    factor=factor,       # 學習率變成 50% (下降更多)
-    patience=patience,       # 3 個 epoch 沒有改善就降低學習率
-    verbose=True,     
-    min_lr=1e-6       
-)
-
-
-
+# 訓練模型
 train_loss = []
 val_loss = []
 lr_list = []
@@ -228,6 +257,10 @@ for epoch in range(max_epochs):
     for local_batch, local_label in train_set:
         optimizer.zero_grad()
         local_batch, local_label = local_batch.to(device), local_label.to(device)
+        print("local_batch : ",local_batch.shape)
+        print("local_label : ",local_label.shape)
+        
+
         logits = net(local_batch)
         loss = my_loss.calc(logits, local_label, local_batch, feas)
         loss.backward()
@@ -644,6 +677,7 @@ params = (sum(temp.numel() for temp in net.parameters() if temp.requires_grad))
 # 建立輸出內容字串
 output_content = f"""
 date: {timestamp}
+genotype: {genotype}
 final_epoch: {final_epoch}
 training time: {t1 - t0:.4e}s
 
