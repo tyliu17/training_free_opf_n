@@ -22,9 +22,11 @@ from evaluate_model import evaluate_model
 from compute_error_metrics import compute_error_metrics
 from flow_violation import compute_line_flow_violation
 
-
+ # NAS GA
 from InferCell import InferCell
 from NAS_Search import generate_random_genotype
+
+
 
 # Hyperparameters
 max_epochs = 3
